@@ -83,7 +83,7 @@ public class QuickFixAcceptorService extends MessageCracker implements Applicati
 			return;
 		}
 
-		Path baseDirectory = Path.of("build", "fix");
+		Path baseDirectory = Path.of("fix-runtime");
 		Path storeDirectory = baseDirectory.resolve("store");
 		Path logDirectory = baseDirectory.resolve("log");
 		Path settingsFile = baseDirectory.resolve("acceptor.cfg");
