@@ -1,0 +1,41 @@
+plugins {
+	id 'java'
+	id 'org.springframework.boot' version '4.1.0'
+	id 'io.spring.dependency-management' version '1.1.7'
+}
+
+group = 'com.demo.fix.acceptor'
+version = '0.0.1-SNAPSHOT'
+
+java {
+	toolchain {
+		languageVersion = JavaLanguageVersion.of(21)
+	}
+}
+
+repositories {
+	mavenCentral()
+}
+
+dependencies {
+	implementation 'org.springframework.boot:spring-boot-starter'
+	implementation 'org.quickfixj:quickfixj-core:2.3.0'
+	implementation 'org.quickfixj:quickfixj-messages-fix44:2.3.0'
+	testImplementation 'org.springframework.boot:spring-boot-starter-test'
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+springBoot {
+	mainClass = 'com.demo.fix.acceptor.FixAcceptorApplication'
+}
+
+tasks.named('test') {
+	useJUnitPlatform()
+}
+
+tasks.register('runAcceptor', JavaExec) {
+	group = 'application'
+	description = 'Run the FIX acceptor'
+	classpath = sourceSets.main.runtimeClasspath
+	mainClass = 'com.demo.fix.acceptor.FixAcceptorApplication'
+}
