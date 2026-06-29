@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Comparator;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.Map;
@@ -87,6 +88,10 @@ public class QuickFixAcceptorService extends MessageCracker implements Applicati
 		Path logDirectory = baseDirectory.resolve("log");
 		Path settingsFile = baseDirectory.resolve("acceptor.cfg");
 
+		deleteDirectory(storeDirectory);
+		deleteDirectory(logDirectory);
+		log.info("Cleared FIX store and log directories for a fresh session");
+
 		Files.createDirectories(storeDirectory);
 		Files.createDirectories(logDirectory);
 		Files.writeString(settingsFile, buildSettings(storeDirectory, logDirectory), StandardCharsets.UTF_8);
@@ -99,6 +104,21 @@ public class QuickFixAcceptorService extends MessageCracker implements Applicati
 		acceptor = new SocketAcceptor(this, messageStoreFactory, sessionSettings, logFactory, messageFactory);
 		acceptor.start();
 		log.info("FIX acceptor started on port {}", properties.getPort());
+	}
+
+	private void deleteDirectory(Path directory) throws IOException {
+		if (Files.exists(directory)) {
+			try (var entries = Files.walk(directory)) {
+				entries.sorted(Comparator.reverseOrder())
+					.forEach(path -> {
+						try {
+							Files.delete(path);
+						} catch (IOException e) {
+							log.warn("Could not delete FIX file: {}", path, e);
+						}
+					});
+			}
+		}
 	}
 
 	private String buildSettings(Path storeDirectory, Path logDirectory) {
