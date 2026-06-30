@@ -1,21 +1,15 @@
 package com.demo.fix.acceptor;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 @ConfigurationProperties(prefix = "fix.acceptor")
 public class FixAcceptorProperties {
 
 	private boolean enabled = true;
-	private int port = 9878;
-	private String beginString = "FIX.4.4";
-	private String senderCompId = "ACCEPTOR";
-	private String targetCompId = "INITIATOR";
-	private int heartbeatIntervalSeconds = 30;
-	private int sendIntervalSeconds = 10;
-	private int sendDurationMinutes = 10;
-	private String symbol = "DEMO";
-	private int quantity = 100;
-	private String side = "BUY";
+	private List<Session> sessions = new ArrayList<>();
 
 	public boolean isEnabled() {
 		return enabled;
@@ -25,83 +19,114 @@ public class FixAcceptorProperties {
 		this.enabled = enabled;
 	}
 
-	public int getPort() {
-		return port;
+	public List<Session> getSessions() {
+		return sessions;
 	}
 
-	public void setPort(int port) {
-		this.port = port;
+	public void setSessions(List<Session> sessions) {
+		this.sessions = sessions == null ? new ArrayList<>() : sessions;
 	}
 
-	public String getBeginString() {
-		return beginString;
-	}
+	public static class Session {
 
-	public void setBeginString(String beginString) {
-		this.beginString = beginString;
-	}
+		private int port = 9878;
+		private String beginString = "FIX.4.4";
+		private String senderCompId = "ACCEPTOR";
+		private String targetCompId = "INITIATOR";
+		private int heartbeatIntervalSeconds = 30;
+		private int sendIntervalSeconds = 10;
+		private int sendDurationMinutes = 10;
+		private int sendTotalOrders = 3;
+		private String symbol = "DEMO";
+		private int quantity = 100;
+		private String side = "BUY";
 
-	public String getSenderCompId() {
-		return senderCompId;
-	}
+		public int getPort() {
+			return port;
+		}
 
-	public void setSenderCompId(String senderCompId) {
-		this.senderCompId = senderCompId;
-	}
+		public void setPort(int port) {
+			this.port = port;
+		}
 
-	public String getTargetCompId() {
-		return targetCompId;
-	}
+		public String getBeginString() {
+			return beginString;
+		}
 
-	public void setTargetCompId(String targetCompId) {
-		this.targetCompId = targetCompId;
-	}
+		public void setBeginString(String beginString) {
+			this.beginString = beginString;
+		}
 
-	public int getHeartbeatIntervalSeconds() {
-		return heartbeatIntervalSeconds;
-	}
+		public String getSenderCompId() {
+			return senderCompId;
+		}
 
-	public void setHeartbeatIntervalSeconds(int heartbeatIntervalSeconds) {
-		this.heartbeatIntervalSeconds = heartbeatIntervalSeconds;
-	}
+		public void setSenderCompId(String senderCompId) {
+			this.senderCompId = senderCompId;
+		}
 
-	public int getSendIntervalSeconds() {
-		return sendIntervalSeconds;
-	}
+		public String getTargetCompId() {
+			return targetCompId;
+		}
 
-	public void setSendIntervalSeconds(int sendIntervalSeconds) {
-		this.sendIntervalSeconds = sendIntervalSeconds;
-	}
+		public void setTargetCompId(String targetCompId) {
+			this.targetCompId = targetCompId;
+		}
 
-	public int getSendDurationMinutes() {
-		return sendDurationMinutes;
-	}
+		public int getHeartbeatIntervalSeconds() {
+			return heartbeatIntervalSeconds;
+		}
 
-	public void setSendDurationMinutes(int sendDurationMinutes) {
-		this.sendDurationMinutes = sendDurationMinutes;
-	}
+		public void setHeartbeatIntervalSeconds(int heartbeatIntervalSeconds) {
+			this.heartbeatIntervalSeconds = heartbeatIntervalSeconds;
+		}
 
-	public String getSymbol() {
-		return symbol;
-	}
+		public int getSendIntervalSeconds() {
+			return sendIntervalSeconds;
+		}
 
-	public void setSymbol(String symbol) {
-		this.symbol = symbol;
-	}
+		public void setSendIntervalSeconds(int sendIntervalSeconds) {
+			this.sendIntervalSeconds = sendIntervalSeconds;
+		}
 
-	public int getQuantity() {
-		return quantity;
-	}
+		public int getSendDurationMinutes() {
+			return sendDurationMinutes;
+		}
 
-	public void setQuantity(int quantity) {
-		this.quantity = quantity;
-	}
+		public void setSendDurationMinutes(int sendDurationMinutes) {
+			this.sendDurationMinutes = sendDurationMinutes;
+		}
 
-	public String getSide() {
-		return side;
-	}
+		public int getSendTotalOrders() {
+			return sendTotalOrders;
+		}
 
-	public void setSide(String side) {
-		this.side = side;
+		public void setSendTotalOrders(int sendTotalOrders) {
+			this.sendTotalOrders = sendTotalOrders;
+		}
+
+		public String getSymbol() {
+			return symbol;
+		}
+
+		public void setSymbol(String symbol) {
+			this.symbol = symbol;
+		}
+
+		public int getQuantity() {
+			return quantity;
+		}
+
+		public void setQuantity(int quantity) {
+			this.quantity = quantity;
+		}
+
+		public String getSide() {
+			return side;
+		}
+
+		public void setSide(String side) {
+			this.side = side;
+		}
 	}
 }

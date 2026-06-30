@@ -5,6 +5,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
+import java.util.Objects;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.Map;
@@ -83,6 +84,10 @@ public class QuickFixAcceptorService extends MessageCracker implements Applicati
 			return;
 		}
 
+		if (properties.getSessions().isEmpty()) {
+			throw new IllegalStateException("At least one FIX acceptor session must be configured");
+		}
+
 		Path baseDirectory = Path.of("fix-runtime");
 		Path storeDirectory = baseDirectory.resolve("store");
 		Path logDirectory = baseDirectory.resolve("log");
@@ -103,7 +108,7 @@ public class QuickFixAcceptorService extends MessageCracker implements Applicati
 
 		acceptor = new SocketAcceptor(this, messageStoreFactory, sessionSettings, logFactory, messageFactory);
 		acceptor.start();
-		log.info("FIX acceptor started on port {}", properties.getPort());
+		log.info("FIX acceptor started with {} session(s)", properties.getSessions().size());
 	}
 
 	private void deleteDirectory(Path directory) throws IOException {
@@ -122,29 +127,25 @@ public class QuickFixAcceptorService extends MessageCracker implements Applicati
 	}
 
 	private String buildSettings(Path storeDirectory, Path logDirectory) {
-		return """
-			[DEFAULT]
-			ConnectionType=acceptor
-			HeartBtInt=%d
-			FileStorePath=%s
-			FileLogPath=%s
-			StartTime=00:00:00
-			EndTime=23:59:59
-			UseDataDictionary=N
+		StringBuilder settings = new StringBuilder();
+		settings.append("[DEFAULT]\n");
+		settings.append("ConnectionType=acceptor\n");
+		settings.append("FileStorePath=%s\n".formatted(storeDirectory.toAbsolutePath()));
+		settings.append("FileLogPath=%s\n".formatted(logDirectory.toAbsolutePath()));
+		settings.append("StartTime=00:00:00\n");
+		settings.append("EndTime=23:59:59\n");
+		settings.append("UseDataDictionary=N\n");
 
-			[SESSION]
-			BeginString=%s
-			SenderCompID=%s
-			TargetCompID=%s
-			SocketAcceptPort=%d
-			""".formatted(
-				properties.getHeartbeatIntervalSeconds(),
-				storeDirectory.toAbsolutePath(),
-				logDirectory.toAbsolutePath(),
-				properties.getBeginString(),
-				properties.getSenderCompId(),
-				properties.getTargetCompId(),
-				properties.getPort());
+		for (FixAcceptorProperties.Session session : properties.getSessions()) {
+			settings.append("\n[SESSION]\n");
+			settings.append("BeginString=%s\n".formatted(session.getBeginString()));
+			settings.append("SenderCompID=%s\n".formatted(session.getSenderCompId()));
+			settings.append("TargetCompID=%s\n".formatted(session.getTargetCompId()));
+			settings.append("SocketAcceptPort=%d\n".formatted(session.getPort()));
+			settings.append("HeartBtInt=%d\n".formatted(session.getHeartbeatIntervalSeconds()));
+		}
+
+		return settings.toString();
 	}
 
 	@Override
@@ -169,7 +170,12 @@ public class QuickFixAcceptorService extends MessageCracker implements Applicati
 	@Override
 	public void onLogon(SessionID sessionId) {
 		log.info("FIX session logon: {}", sessionId);
-		orderFlows.computeIfAbsent(sessionId, this::startOrderFlow);
+		FixAcceptorProperties.Session session = findSession(sessionId);
+		if (session == null) {
+			log.warn("Ignoring logon for unknown session {}", sessionId);
+			return;
+		}
+		orderFlows.computeIfAbsent(sessionId, ignored -> startOrderFlow(sessionId, session));
 	}
 
 	@Override
@@ -203,10 +209,19 @@ public class QuickFixAcceptorService extends MessageCracker implements Applicati
 		log.info("From app {}: {}", sessionId, message);
 	}
 
-	private OrderFlow startOrderFlow(SessionID sessionId) {
+	private FixAcceptorProperties.Session findSession(SessionID sessionId) {
+		return properties.getSessions().stream()
+			.filter(session -> Objects.equals(session.getBeginString(), sessionId.getBeginString()))
+			.filter(session -> Objects.equals(session.getSenderCompId(), sessionId.getSenderCompID()))
+			.filter(session -> Objects.equals(session.getTargetCompId(), sessionId.getTargetCompID()))
+			.findFirst()
+			.orElse(null);
+	}
+
+	private OrderFlow startOrderFlow(SessionID sessionId, FixAcceptorProperties.Session session) {
 		OrderFlow orderFlow = new OrderFlow(sessionId);
-		long intervalSeconds = Math.max(1, properties.getSendIntervalSeconds());
-		long totalRuns = Math.max(1L, (properties.getSendDurationMinutes() * 60L) / intervalSeconds);
+		long intervalSeconds = Math.max(1, session.getSendIntervalSeconds());
+		long totalRuns = Math.max(1L, session.getSendTotalOrders());
 		AtomicReference<ScheduledFuture<?>> futureReference = new AtomicReference<>();
 
 		ScheduledFuture<?> future = scheduler.scheduleAtFixedRate(() -> {
@@ -221,7 +236,7 @@ public class QuickFixAcceptorService extends MessageCracker implements Applicati
 			}
 
 			try {
-				sendOrder(sessionId, currentOrderNumber);
+				sendOrder(sessionId, session, currentOrderNumber);
 				log.info("Sent FIX order {} to {}", currentOrderNumber, sessionId);
 			} catch (Exception exception) {
 				log.error("Failed to send FIX order {} to {}", currentOrderNumber, sessionId, exception);
@@ -241,16 +256,16 @@ public class QuickFixAcceptorService extends MessageCracker implements Applicati
 		return orderFlow;
 	}
 
-	private void sendOrder(SessionID sessionId, int currentOrderNumber) throws Exception {
+	private void sendOrder(SessionID sessionId, FixAcceptorProperties.Session session, int currentOrderNumber) throws Exception {
 		String clOrdId = sessionId.getSenderCompID() + "-" + sessionId.getTargetCompID() + "-" + currentOrderNumber;
 		NewOrderSingle order = new NewOrderSingle(
 			new ClOrdID(clOrdId),
-			new Side(resolveSide(properties.getSide())),
+			new Side(resolveSide(session.getSide())),
 			new TransactTime(LocalDateTime.now(ZoneId.systemDefault())),
 			new OrdType(OrdType.MARKET));
 		order.set(new HandlInst(HandlInst.AUTOMATED_EXECUTION_ORDER_PUBLIC_BROKER_INTERVENTION_OK));
-		order.set(new Symbol(properties.getSymbol()));
-		order.set(new OrderQty(properties.getQuantity()));
+		order.set(new Symbol(session.getSymbol()));
+		order.set(new OrderQty(session.getQuantity()));
 
 		Session.sendToTarget(order, sessionId);
 	}
