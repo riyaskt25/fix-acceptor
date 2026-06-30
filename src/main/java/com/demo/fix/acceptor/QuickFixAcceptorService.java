@@ -5,18 +5,15 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -59,19 +56,15 @@ public class QuickFixAcceptorService extends MessageCracker implements Applicati
 	private static final Logger log = LoggerFactory.getLogger(QuickFixAcceptorService.class);
 
 	private final FixAcceptorProperties properties;
-	private final ScheduledExecutorService scheduler;
-	private final Map<SessionID, OrderFlow> orderFlows = new ConcurrentHashMap<>();
+	private final Map<SessionID, AtomicInteger> sentCounters = new ConcurrentHashMap<>();
+	private final Map<SessionID, ConcurrentLinkedQueue<OrderRequest>> pendingOrders = new ConcurrentHashMap<>();
+	private final Map<SessionID, Object> sendLocks = new ConcurrentHashMap<>();
+	private final Map<String, FixAcceptorProperties.Session> sessionsByTargetCompId = new ConcurrentHashMap<>();
 
 	private volatile SocketAcceptor acceptor;
 
 	public QuickFixAcceptorService(FixAcceptorProperties properties) {
 		this.properties = properties;
-		ThreadFactory threadFactory = runnable -> {
-			Thread thread = new Thread(runnable, "fix-order-scheduler");
-			thread.setDaemon(false);
-			return thread;
-		};
-		this.scheduler = Executors.newSingleThreadScheduledExecutor(threadFactory);
 	}
 
 	@Override
@@ -86,6 +79,11 @@ public class QuickFixAcceptorService extends MessageCracker implements Applicati
 
 		if (properties.getSessions().isEmpty()) {
 			throw new IllegalStateException("At least one FIX acceptor session must be configured");
+		}
+
+		sessionsByTargetCompId.clear();
+		for (FixAcceptorProperties.Session configuredSession : properties.getSessions()) {
+			sessionsByTargetCompId.put(configuredSession.getTargetCompId(), configuredSession);
 		}
 
 		Path baseDirectory = Path.of("fix-runtime");
@@ -150,16 +148,16 @@ public class QuickFixAcceptorService extends MessageCracker implements Applicati
 
 	@Override
 	public void destroy() {
-		orderFlows.values().forEach(OrderFlow::cancel);
-		orderFlows.clear();
+		pendingOrders.clear();
+		sendLocks.clear();
+		sentCounters.clear();
+		sessionsByTargetCompId.clear();
 
 		SocketAcceptor currentAcceptor = acceptor;
 		if (currentAcceptor != null) {
 			currentAcceptor.stop();
 			acceptor = null;
 		}
-
-		scheduler.shutdownNow();
 	}
 
 	@Override
@@ -175,16 +173,13 @@ public class QuickFixAcceptorService extends MessageCracker implements Applicati
 			log.warn("Ignoring logon for unknown session {}", sessionId);
 			return;
 		}
-		orderFlows.computeIfAbsent(sessionId, ignored -> startOrderFlow(sessionId, session));
+		drainPendingOrders(sessionId, session);
 	}
 
 	@Override
 	public void onLogout(SessionID sessionId) {
 		log.info("FIX session logout: {}", sessionId);
-		OrderFlow orderFlow = orderFlows.remove(sessionId);
-		if (orderFlow != null) {
-			orderFlow.cancel();
-		}
+		// Keep pending orders for this session so they can be sent on next logon.
 	}
 
 	@Override
@@ -218,54 +213,68 @@ public class QuickFixAcceptorService extends MessageCracker implements Applicati
 			.orElse(null);
 	}
 
-	private OrderFlow startOrderFlow(SessionID sessionId, FixAcceptorProperties.Session session) {
-		OrderFlow orderFlow = new OrderFlow(sessionId);
-		long intervalSeconds = Math.max(1, session.getSendIntervalSeconds());
-		long totalRuns = Math.max(1L, session.getSendTotalOrders());
-		AtomicReference<ScheduledFuture<?>> futureReference = new AtomicReference<>();
+	public SubmissionResult submitOrders(String targetCompId, String symbol, Integer quantity, String side, int count) {
+		FixAcceptorProperties.Session session = sessionsByTargetCompId.get(targetCompId);
+		if (session == null) {
+			throw new IllegalArgumentException("Unknown targetCompId: " + targetCompId);
+		}
 
-		ScheduledFuture<?> future = scheduler.scheduleAtFixedRate(() -> {
-			int currentOrderNumber = orderFlow.sentCount.incrementAndGet();
-			if (currentOrderNumber > totalRuns) {
-				ScheduledFuture<?> scheduledFuture = futureReference.get();
-				if (scheduledFuture != null) {
-					scheduledFuture.cancel(false);
-				}
-				orderFlows.remove(sessionId);
-				return;
-			}
+		int safeCount = Math.max(1, count);
+		String resolvedSymbol = symbol == null || symbol.isBlank() ? session.getSymbol() : symbol;
+		int resolvedQuantity = quantity == null || quantity <= 0 ? session.getQuantity() : quantity;
+		String resolvedSide = side == null || side.isBlank() ? session.getSide() : side;
 
-			try {
-				sendOrder(sessionId, session, currentOrderNumber);
-				log.info("Sent FIX order {} to {}", currentOrderNumber, sessionId);
-			} catch (Exception exception) {
-				log.error("Failed to send FIX order {} to {}", currentOrderNumber, sessionId, exception);
-			}
+		SessionID sessionId = new SessionID(session.getBeginString(), session.getSenderCompId(), session.getTargetCompId());
+		ConcurrentLinkedQueue<OrderRequest> queue = pendingOrders.computeIfAbsent(sessionId, ignored -> new ConcurrentLinkedQueue<>());
+		for (int i = 0; i < safeCount; i++) {
+			queue.add(new OrderRequest(resolvedSymbol, resolvedQuantity, resolvedSide));
+		}
 
-			if (currentOrderNumber >= totalRuns) {
-				ScheduledFuture<?> scheduledFuture = futureReference.get();
-				if (scheduledFuture != null) {
-					scheduledFuture.cancel(false);
-				}
-				orderFlows.remove(sessionId);
-			}
-		}, intervalSeconds, intervalSeconds, TimeUnit.SECONDS);
-
-		futureReference.set(future);
-		orderFlow.future.set(future);
-		return orderFlow;
+		int sentNow = drainPendingOrders(sessionId, session);
+		int pending = queue.size();
+		return new SubmissionResult(targetCompId, safeCount, sentNow, pending);
 	}
 
-	private void sendOrder(SessionID sessionId, FixAcceptorProperties.Session session, int currentOrderNumber) throws Exception {
+	private int drainPendingOrders(SessionID sessionId, FixAcceptorProperties.Session session) {
+		Object sendLock = sendLocks.computeIfAbsent(sessionId, ignored -> new Object());
+		ConcurrentLinkedQueue<OrderRequest> queue = pendingOrders.computeIfAbsent(sessionId, ignored -> new ConcurrentLinkedQueue<>());
+		Session activeSession = Session.lookupSession(sessionId);
+		if (activeSession == null || !activeSession.isLoggedOn()) {
+			return 0;
+		}
+
+		List<OrderRequest> failedOrders = new ArrayList<>();
+		int sent = 0;
+		synchronized (sendLock) {
+			OrderRequest orderRequest;
+			while ((orderRequest = queue.poll()) != null) {
+				try {
+					int nextOrderNumber = sentCounters.computeIfAbsent(sessionId, ignored -> new AtomicInteger(0)).incrementAndGet();
+					sendOrder(sessionId, session, nextOrderNumber, orderRequest);
+					sent++;
+					log.info("Sent FIX order {} to {}", nextOrderNumber, sessionId);
+				} catch (Exception exception) {
+					failedOrders.add(orderRequest);
+					log.error("Failed to send FIX order to {}", sessionId, exception);
+				}
+			}
+			for (OrderRequest failedOrder : failedOrders) {
+				queue.add(failedOrder);
+			}
+		}
+		return sent;
+	}
+
+	private void sendOrder(SessionID sessionId, FixAcceptorProperties.Session session, int currentOrderNumber, OrderRequest orderRequest) throws Exception {
 		String clOrdId = sessionId.getSenderCompID() + "-" + sessionId.getTargetCompID() + "-" + currentOrderNumber;
 		NewOrderSingle order = new NewOrderSingle(
 			new ClOrdID(clOrdId),
-			new Side(resolveSide(session.getSide())),
+			new Side(resolveSide(orderRequest.side())),
 			new TransactTime(LocalDateTime.now(ZoneId.systemDefault())),
 			new OrdType(OrdType.MARKET));
 		order.set(new HandlInst(HandlInst.AUTOMATED_EXECUTION_ORDER_PUBLIC_BROKER_INTERVENTION_OK));
-		order.set(new Symbol(session.getSymbol()));
-		order.set(new OrderQty(session.getQuantity()));
+		order.set(new Symbol(orderRequest.symbol()));
+		order.set(new OrderQty(orderRequest.quantity()));
 
 		Session.sendToTarget(order, sessionId);
 	}
@@ -281,21 +290,9 @@ public class QuickFixAcceptorService extends MessageCracker implements Applicati
 		};
 	}
 
-	private static final class OrderFlow {
+	private record OrderRequest(String symbol, int quantity, String side) {
+	}
 
-		private final SessionID sessionId;
-		private final AtomicInteger sentCount = new AtomicInteger();
-		private final AtomicReference<ScheduledFuture<?>> future = new AtomicReference<>();
-
-		private OrderFlow(SessionID sessionId) {
-			this.sessionId = sessionId;
-		}
-
-		private void cancel() {
-			ScheduledFuture<?> scheduledFuture = future.getAndSet(null);
-			if (scheduledFuture != null) {
-				scheduledFuture.cancel(false);
-			}
-		}
+	public record SubmissionResult(String targetCompId, int requested, int sentNow, int pending) {
 	}
 }

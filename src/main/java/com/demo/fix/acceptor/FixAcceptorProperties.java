@@ -34,9 +34,6 @@ public class FixAcceptorProperties {
 		private String senderCompId = "ACCEPTOR";
 		private String targetCompId = "INITIATOR";
 		private int heartbeatIntervalSeconds = 30;
-		private int sendIntervalSeconds = 10;
-		private int sendDurationMinutes = 10;
-		private int sendTotalOrders = 3;
 		private String symbol = "DEMO";
 		private int quantity = 100;
 		private String side = "BUY";
@@ -79,30 +76,6 @@ public class FixAcceptorProperties {
 
 		public void setHeartbeatIntervalSeconds(int heartbeatIntervalSeconds) {
 			this.heartbeatIntervalSeconds = heartbeatIntervalSeconds;
-		}
-
-		public int getSendIntervalSeconds() {
-			return sendIntervalSeconds;
-		}
-
-		public void setSendIntervalSeconds(int sendIntervalSeconds) {
-			this.sendIntervalSeconds = sendIntervalSeconds;
-		}
-
-		public int getSendDurationMinutes() {
-			return sendDurationMinutes;
-		}
-
-		public void setSendDurationMinutes(int sendDurationMinutes) {
-			this.sendDurationMinutes = sendDurationMinutes;
-		}
-
-		public int getSendTotalOrders() {
-			return sendTotalOrders;
-		}
-
-		public void setSendTotalOrders(int sendTotalOrders) {
-			this.sendTotalOrders = sendTotalOrders;
 		}
 
 		public String getSymbol() {

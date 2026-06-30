@@ -11,8 +11,6 @@ fix:
         sender-comp-id: ACCEPTOR
         target-comp-id: INITIATOR1
         heartbeat-interval-seconds: 30
-        send-interval-seconds: 10
-        send-total-orders: 3
         symbol: DEMO
         quantity: 100
         side: BUY
@@ -21,8 +19,6 @@ fix:
         sender-comp-id: ACCEPTOR
         target-comp-id: INITIATOR2
         heartbeat-interval-seconds: 30
-        send-interval-seconds: 10
-        send-total-orders: 3
         symbol: DEMO
         quantity: 100
         side: SELL
