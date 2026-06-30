@@ -1,18 +1,22 @@
 package com.demo.fix.acceptor;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.slf4j.Logger;
@@ -107,6 +111,74 @@ public class QuickFixAcceptorService extends MessageCracker implements Applicati
 		acceptor = new SocketAcceptor(this, messageStoreFactory, sessionSettings, logFactory, messageFactory);
 		acceptor.start();
 		log.info("FIX acceptor started with {} session(s)", properties.getSessions().size());
+		logStartupClientDiagnostics();
+	}
+
+	private void logStartupClientDiagnostics() {
+		if (!System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win")) {
+			return;
+		}
+
+		Set<Integer> uniquePorts = ConcurrentHashMap.newKeySet();
+		for (FixAcceptorProperties.Session session : properties.getSessions()) {
+			uniquePorts.add(session.getPort());
+		}
+
+		for (Integer port : uniquePorts) {
+			logWindowsConnectionsForPort(port);
+		}
+	}
+
+	private void logWindowsConnectionsForPort(int port) {
+		String command = "Get-NetTCPConnection -RemotePort " + port
+			+ " -State Established -ErrorAction SilentlyContinue | "
+			+ "Select-Object LocalAddress,LocalPort,RemoteAddress,RemotePort,OwningProcess | "
+			+ "ConvertTo-Csv -NoTypeInformation";
+		ProcessBuilder processBuilder = new ProcessBuilder("powershell", "-NoProfile", "-Command", command);
+
+		try {
+			Process process = processBuilder.start();
+			boolean finished = process.waitFor(3, TimeUnit.SECONDS);
+			if (!finished) {
+				process.destroyForcibly();
+				log.info("Startup diagnostics timed out while checking connected clients for port {}", port);
+				return;
+			}
+
+			String output = readStream(process.getInputStream()).trim();
+			String error = readStream(process.getErrorStream()).trim();
+			if (!error.isBlank()) {
+				log.debug("Startup diagnostics stderr for port {}: {}", port, error);
+			}
+
+			if (output.isBlank()) {
+				log.info("Startup diagnostics: no connected clients on port {}", port);
+				return;
+			}
+
+			String[] lines = output.split("\\R");
+			if (lines.length <= 1) {
+				log.info("Startup diagnostics: no connected clients on port {}", port);
+				return;
+			}
+
+			for (int i = 1; i < lines.length; i++) {
+				String line = lines[i].trim();
+				if (line.isEmpty()) {
+					continue;
+				}
+				log.info("Startup diagnostics: connected client on port {} -> {}", port, line);
+			}
+		} catch (IOException | InterruptedException exception) {
+			if (exception instanceof InterruptedException) {
+				Thread.currentThread().interrupt();
+			}
+			log.warn("Startup diagnostics failed for port {}", port, exception);
+		}
+	}
+
+	private String readStream(InputStream inputStream) throws IOException {
+		return new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
 	}
 
 	private void deleteDirectory(Path directory) throws IOException {
