@@ -27,29 +27,43 @@ public class SendMessageController {
 		log.info("Initialized SendMessageController");
 	}
 
-	@PostMapping(consumes = MediaType.TEXT_PLAIN_VALUE)
+	@PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
 	@ResponseStatus(HttpStatus.ACCEPTED)
-	public SendMessageService.RawMessageSubmissionResult send(
+	public SendMessageService.ExecutionReportSubmissionResult send(
 		@RequestParam String targetCompId,
-		@RequestBody String rawFixMessage) {
+		@RequestBody ExecutionReportRequest request) {
 		log.info("Received /api/send-message request: targetCompId={}, rawLength={}",
 			targetCompId,
-			rawFixMessage == null ? 0 : rawFixMessage.length());
+			request == null ? 0 : 1);
 
 		if (targetCompId == null || targetCompId.isBlank()) {
 			log.warn("Rejecting send request: missing targetCompId");
 			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "targetCompId is required");
 		}
-		if (rawFixMessage == null || rawFixMessage.isBlank()) {
-			log.warn("Rejecting send request: empty rawFixMessage for targetCompId={}", targetCompId);
-			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "rawFixMessage is required");
+		if (request == null) {
+			log.warn("Rejecting send request: empty request body for targetCompId={}", targetCompId);
+			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "request body is required");
 		}
 
-		SendMessageService.RawMessageSubmissionResult result = sendMessageService.sendRawMessage(targetCompId.trim(), rawFixMessage);
-		log.info("Completed /api/send-message request: targetCompId={}, sentNow={}, pending={}",
+		log.info("Request summary: targetCompId={}, clOrdId={}, execId={}, execType={}, ordStatus={}, symbol={}, side={}, orderQty={}, parties={}, extraFields={}",
+			targetCompId,
+			request.field144(),
+			request.clOrdId(),
+			request.execId(),
+			request.execType(),
+			request.ordStatus(),
+			request.symbol(),
+			request.side(),
+			request.orderQty(),
+			request.parties() == null ? 0 : request.parties().size(),
+			request.additionalFields() == null ? 0 : request.additionalFields().size());
+
+		SendMessageService.ExecutionReportSubmissionResult result = sendMessageService.sendExecutionReport(targetCompId.trim(), request);
+		log.info("Completed /api/send-message request: targetCompId={}, sentNow={}, sent={}, sessionId={}",
 			result.targetCompId(),
 			result.sentNow(),
-			result.pending());
+			result.sent(),
+			result.sessionId());
 		return result;
 	}
 

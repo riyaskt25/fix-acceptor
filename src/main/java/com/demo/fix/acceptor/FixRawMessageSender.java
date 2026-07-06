@@ -28,4 +28,18 @@ public class FixRawMessageSender {
         log.info("FIX send result: sessionId={}, sent={}", sessionId, sent);
         return sent;
     }
+
+    public boolean send(FixAcceptorProperties.Session session, SessionID sessionId, Message message) throws Exception {
+        log.info("Preparing FIX typed message send: sessionId={}, senderCompId={}, targetCompId={}, messageType={}",
+            sessionId,
+            session.getSenderCompId(),
+            session.getTargetCompId(),
+            message.getHeader().getString(35));
+        message.getHeader().setString(SenderCompID.FIELD, session.getSenderCompId());
+        message.getHeader().setString(TargetCompID.FIELD, session.getTargetCompId());
+        log.debug("Sending FIX typed message to target: sessionId={}, message={}", sessionId, message);
+        boolean sent = Session.sendToTarget(message, sessionId);
+        log.info("FIX typed send result: sessionId={}, sent={}", sessionId, sent);
+        return sent;
+    }
 }
