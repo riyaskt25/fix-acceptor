@@ -1,6 +1,6 @@
 spring:
   application:
-    name: fix-acceptor
+    name: fix-acceptor1
 
 fix:
   acceptor:
