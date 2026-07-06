@@ -1,4 +1,4 @@
-package com.demo.fix.acceptor;
+package com.demo.fix.acceptor.infrastructure;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -6,6 +6,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
+
+import com.demo.fix.acceptor.FixAcceptorProperties;
 
 import quickfix.SessionID;
 

@@ -1,4 +1,4 @@
-package com.demo.fix.acceptor;
+package com.demo.fix.acceptor.infrastructure;
 
 import java.io.IOException;
 import java.io.InputStream;

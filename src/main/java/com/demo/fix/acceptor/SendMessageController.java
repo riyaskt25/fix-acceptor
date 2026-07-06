@@ -1,4 +1,4 @@
-package com.demo.fix.acceptor;
+package com.demo.fix.acceptor.api;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -13,6 +13,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
+
+import com.demo.fix.acceptor.application.SendMessageService;
 
 @RestController
 @RequestMapping("/api/send-message")
@@ -29,9 +31,9 @@ public class SendMessageController {
 
 	@PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
 	@ResponseStatus(HttpStatus.ACCEPTED)
-	public SendMessageService.ExecutionReportSubmissionResult send(
+	public SendMessageService.NewOrderSubmissionResult send(
 		@RequestParam String targetCompId,
-		@RequestBody ExecutionReportRequest request) {
+		@RequestBody NewOrderRequest request) {
 		log.info("Received /api/send-message request: targetCompId={}, rawLength={}",
 			targetCompId,
 			request == null ? 0 : 1);
@@ -45,20 +47,19 @@ public class SendMessageController {
 			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "request body is required");
 		}
 
-		log.info("Request summary: targetCompId={}, clOrdId={}, execId={}, execType={}, ordStatus={}, symbol={}, side={}, orderQty={}, parties={}, extraFields={}",
+		log.info("Request summary: targetCompId={}, clOrdId={}, symbol={}, side={}, ordType={}, orderQty={}, price={}, stopPx={}, parties={}, extraFields={}",
 			targetCompId,
-			request.field144(),
 			request.clOrdId(),
-			request.execId(),
-			request.execType(),
-			request.ordStatus(),
 			request.symbol(),
 			request.side(),
+			request.ordType(),
 			request.orderQty(),
+			request.price(),
+			request.stopPx(),
 			request.parties() == null ? 0 : request.parties().size(),
 			request.additionalFields() == null ? 0 : request.additionalFields().size());
 
-		SendMessageService.ExecutionReportSubmissionResult result = sendMessageService.sendExecutionReport(targetCompId.trim(), request);
+		SendMessageService.NewOrderSubmissionResult result = sendMessageService.sendNewOrder(targetCompId.trim(), request);
 		log.info("Completed /api/send-message request: targetCompId={}, sentNow={}, sent={}, sessionId={}",
 			result.targetCompId(),
 			result.sentNow(),

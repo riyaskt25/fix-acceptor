@@ -1,4 +1,4 @@
-package com.demo.fix.acceptor;
+package com.demo.fix.acceptor.application;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -9,74 +9,83 @@ import quickfix.Message;
 import quickfix.Session;
 import quickfix.SessionID;
 
+import com.demo.fix.acceptor.FixAcceptorProperties;
+import com.demo.fix.acceptor.api.NewOrderRequest;
+import com.demo.fix.acceptor.infrastructure.FixRawMessageSender;
+import com.demo.fix.acceptor.infrastructure.FixSessionRegistry;
+
 @Service
 @ConditionalOnProperty(prefix = "fix.acceptor", name = "enabled", havingValue = "true", matchIfMissing = true)
 public class SendMessageService {
 	private static final Logger log = LoggerFactory.getLogger(SendMessageService.class);
 
 	private final FixSessionRegistry sessionRegistry;
-	private final ExecutionReportMessageBuilder executionReportMessageBuilder;
+	private final NewOrderSingleMessageBuilder newOrderSingleMessageBuilder;
 	private final FixRawMessageSender rawMessageSender;
 
 	public SendMessageService(
 		FixSessionRegistry sessionRegistry,
-		ExecutionReportMessageBuilder executionReportMessageBuilder,
+		NewOrderSingleMessageBuilder newOrderSingleMessageBuilder,
 		FixRawMessageSender rawMessageSender) {
 		this.sessionRegistry = sessionRegistry;
-		this.executionReportMessageBuilder = executionReportMessageBuilder;
+		this.newOrderSingleMessageBuilder = newOrderSingleMessageBuilder;
 		this.rawMessageSender = rawMessageSender;
 		log.info("Initialized SendMessageService");
 	}
 
-	public ExecutionReportSubmissionResult sendExecutionReport(String targetCompId, ExecutionReportRequest request) {
-		log.info("Processing sendExecutionReport: targetCompId={}, clOrdId={}, execId={}, execType={}, ordStatus={}, symbol={}, side={}, orderQty={}",
+	public NewOrderSubmissionResult sendNewOrder(String targetCompId, NewOrderRequest request) {
+		log.info("Processing sendNewOrder: targetCompId={}, clOrdId={}, symbol={}, side={}, ordType={}, orderQty={}, price={}, stopPx={}",
 			targetCompId,
 			request == null ? null : request.clOrdId(),
-			request == null ? null : request.execId(),
-			request == null ? null : request.execType(),
-			request == null ? null : request.ordStatus(),
 			request == null ? null : request.symbol(),
 			request == null ? null : request.side(),
-			request == null ? null : request.orderQty());
+			request == null ? null : request.ordType(),
+			request == null ? null : request.orderQty(),
+			request == null ? null : request.price(),
+			request == null ? null : request.stopPx());
 		if (request == null) {
-			log.warn("sendExecutionReport rejected: request body is null, targetCompId={}", targetCompId);
+			log.warn("sendNewOrder rejected: request body is null, targetCompId={}", targetCompId);
 			throw new IllegalArgumentException("request body is required");
 		}
 
 		FixAcceptorProperties.Session session = sessionRegistry.requireByTargetCompId(targetCompId);
 		SessionID sessionId = sessionRegistry.toSessionId(session);
-		log.info("Resolved session for sendExecutionReport: targetCompId={}, sessionId={}", targetCompId, sessionId);
+		log.info("Resolved session for sendNewOrder: targetCompId={}, sessionId={}", targetCompId, sessionId);
 
 		Session activeSession = Session.lookupSession(sessionId);
 		if (activeSession == null || !activeSession.isLoggedOn()) {
-			log.info("Initiator is not logged on, execution report ignored: targetCompId={}, sessionId={}", targetCompId, sessionId);
-			return new ExecutionReportSubmissionResult(targetCompId, 0, false, sessionId.toString());
+			log.info("Initiator is not logged on, new order ignored: targetCompId={}, sessionId={}", targetCompId, sessionId);
+			return new NewOrderSubmissionResult(targetCompId, 0, false, sessionId.toString());
 		}
 
 		try {
-			Message message = executionReportMessageBuilder.build(request);
+			Message message = newOrderSingleMessageBuilder.build(request);
 			boolean sent = rawMessageSender.send(session, sessionId, message);
 			if (!sent) {
-				log.warn("QuickFIX did not send execution report (sendToTarget=false): targetCompId={}, sessionId={}", targetCompId, sessionId);
-				return new ExecutionReportSubmissionResult(targetCompId, 0, false, sessionId.toString());
+				log.warn("QuickFIX did not send new order (sendToTarget=false): targetCompId={}, sessionId={}", targetCompId, sessionId);
+				return new NewOrderSubmissionResult(targetCompId, 0, false, sessionId.toString());
 			}
-			log.info("Execution report sent successfully: targetCompId={}, sessionId={}, clOrdId={}, execId={}",
+			log.info("New order sent successfully: targetCompId={}, sessionId={}, clOrdId={}, symbol={}, side={}, orderQty={}",
 				targetCompId,
 				sessionId,
 				request.clOrdId(),
-				request.execId());
-			return new ExecutionReportSubmissionResult(targetCompId, 1, true, sessionId.toString());
+				request.symbol(),
+				request.side(),
+				request.orderQty());
+			return new NewOrderSubmissionResult(targetCompId, 1, true, sessionId.toString());
 		} catch (Exception exception) {
-			log.error("Execution report send failed: targetCompId={}, sessionId={}, clOrdId={}, execId={}",
+			log.error("New order send failed: targetCompId={}, sessionId={}, clOrdId={}, symbol={}, side={}, orderQty={}",
 				targetCompId,
 				sessionId,
 				request.clOrdId(),
-				request.execId(),
+				request.symbol(),
+				request.side(),
+				request.orderQty(),
 				exception);
-			throw new IllegalArgumentException("Failed to send FIX execution report", exception);
+			throw new IllegalArgumentException("Failed to send FIX new order", exception);
 		}
 	}
 
-	public record ExecutionReportSubmissionResult(String targetCompId, int sentNow, boolean sent, String sessionId) {
+	public record NewOrderSubmissionResult(String targetCompId, int sentNow, boolean sent, String sessionId) {
 	}
 }

@@ -1,10 +1,12 @@
-package com.demo.fix.acceptor;
+package com.demo.fix.acceptor.infrastructure;
 
 import java.nio.file.Path;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
+
+import com.demo.fix.acceptor.FixAcceptorProperties;
 
 @Component
 public class FixSettingsBuilder {
