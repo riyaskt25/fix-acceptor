@@ -1,13 +1,10 @@
 package com.demo.fix.acceptor;
 
 import java.io.IOException;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.TimeUnit;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -45,8 +42,6 @@ public class QuickFixAcceptorRuntimeService extends MessageCracker implements Ap
 	private final FixSessionRegistry sessionRegistry;
 	private final FixSettingsBuilder settingsBuilder;
 	private final FixRuntimeFilesManager runtimeFilesManager;
-	private final FixMessageQueueService queueService;
-	private final FixRawMessageSender rawMessageSender;
 
 	private volatile SocketAcceptor acceptor;
 
@@ -54,33 +49,39 @@ public class QuickFixAcceptorRuntimeService extends MessageCracker implements Ap
 		FixAcceptorProperties properties,
 		FixSessionRegistry sessionRegistry,
 		FixSettingsBuilder settingsBuilder,
-		FixRuntimeFilesManager runtimeFilesManager,
-		FixMessageQueueService queueService,
-		FixRawMessageSender rawMessageSender) {
+		FixRuntimeFilesManager runtimeFilesManager) {
 		this.properties = properties;
 		this.sessionRegistry = sessionRegistry;
 		this.settingsBuilder = settingsBuilder;
 		this.runtimeFilesManager = runtimeFilesManager;
-		this.queueService = queueService;
-		this.rawMessageSender = rawMessageSender;
+		log.info("Initialized QuickFixAcceptorRuntimeService");
 	}
 
 	@Override
 	public void run(ApplicationArguments args) throws Exception {
+		log.info("ApplicationRunner invoked for QuickFixAcceptorRuntimeService");
 		start();
 	}
 
 	private synchronized void start() throws Exception {
+		log.info("Starting FIX acceptor runtime");
 		if (acceptor != null) {
+			log.info("FIX acceptor runtime already started, skipping initialization");
 			return;
 		}
 		if (properties.getSessions().isEmpty()) {
+			log.error("No FIX sessions configured");
 			throw new IllegalStateException("At least one FIX acceptor session must be configured");
 		}
 
+		log.info("Refreshing FIX session registry with {} session(s)", properties.getSessions().size());
 		sessionRegistry.refresh(properties.getSessions());
 		String settings = settingsBuilder.build(properties.getSessions(), Path.of("fix-runtime/store"), Path.of("fix-runtime/log"));
 		FixRuntimeFilesManager.RuntimePaths runtimePaths = runtimeFilesManager.resetRuntime(settings);
+		log.info("Runtime files prepared: settingsFile={}, storeDir={}, logDir={}",
+			runtimePaths.settingsFile(),
+			runtimePaths.storeDirectory(),
+			runtimePaths.logDirectory());
 
 		SessionSettings sessionSettings = new SessionSettings(runtimePaths.settingsFile().toString());
 		MessageStoreFactory messageStoreFactory = new FileStoreFactory(sessionSettings);
@@ -95,11 +96,14 @@ public class QuickFixAcceptorRuntimeService extends MessageCracker implements Ap
 
 	@Override
 	public void destroy() {
-		queueService.clear();
+		log.info("Destroying FIX acceptor runtime");
 		SocketAcceptor currentAcceptor = acceptor;
 		if (currentAcceptor != null) {
+			log.info("Stopping FIX acceptor instance");
 			currentAcceptor.stop();
 			acceptor = null;
+		} else {
+			log.info("No FIX acceptor instance to stop");
 		}
 	}
 
@@ -111,12 +115,6 @@ public class QuickFixAcceptorRuntimeService extends MessageCracker implements Ap
 	@Override
 	public void onLogon(SessionID sessionId) {
 		log.info("FIX session logon: {}", sessionId);
-		FixAcceptorProperties.Session session = findSession(sessionId);
-		if (session == null) {
-			log.warn("Ignoring logon for unknown session {}", sessionId);
-			return;
-		}
-		queueService.drainOnLogon(sessionId, session, rawMessageSender);
 	}
 
 	@Override
@@ -126,87 +124,39 @@ public class QuickFixAcceptorRuntimeService extends MessageCracker implements Ap
 
 	@Override
 	public void toAdmin(Message message, SessionID sessionId) {
-		log.debug("To admin {}: {}", sessionId, message);
+		log.debug("To admin sessionId={}, message={}", sessionId, message);
 	}
 
 	@Override
 	public void fromAdmin(Message message, SessionID sessionId)
 		throws FieldNotFound, IncorrectDataFormat, IncorrectTagValue, RejectLogon {
-		log.debug("From admin {}: {}", sessionId, message);
+		log.debug("From admin sessionId={}, message={}", sessionId, message);
 	}
 
 	@Override
 	public void toApp(Message message, SessionID sessionId) {
-		log.debug("To app {}: {}", sessionId, message);
+		log.debug("To app sessionId={}, message={}", sessionId, message);
 	}
 
 	@Override
 	public void fromApp(Message message, SessionID sessionId)
 		throws FieldNotFound, IncorrectDataFormat, IncorrectTagValue, UnsupportedMessageType {
-		log.info("From app {}: {}", sessionId, message);
-	}
-
-	private FixAcceptorProperties.Session findSession(SessionID sessionId) {
-		return properties.getSessions().stream()
-			.filter(session -> session.getBeginString().equals(sessionId.getBeginString()))
-			.filter(session -> session.getSenderCompId().equals(sessionId.getSenderCompID()))
-			.filter(session -> session.getTargetCompId().equals(sessionId.getTargetCompID()))
-			.findFirst()
-			.orElse(null);
+		log.info("From app sessionId={}, message={}", sessionId, message);
 	}
 
 	private void logStartupClientDiagnostics() {
+		log.info("Running startup client diagnostics");
 		if (!System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win")) {
+			log.info("Skipping startup client diagnostics because OS is not Windows");
 			return;
 		}
 		Set<Integer> uniquePorts = ConcurrentHashMap.newKeySet();
 		for (FixAcceptorProperties.Session session : properties.getSessions()) {
 			uniquePorts.add(session.getPort());
 		}
+		log.info("Startup diagnostics will run for {} unique port(s)", uniquePorts.size());
 		for (Integer port : uniquePorts) {
-			logWindowsConnectionsForPort(port);
+			WindowsFixDiagnosticsUtil.logConnectionsForPort(port, log);
 		}
-	}
-
-	private void logWindowsConnectionsForPort(int port) {
-		String command = "Get-NetTCPConnection -RemotePort " + port
-			+ " -State Established -ErrorAction SilentlyContinue | "
-			+ "Select-Object LocalAddress,LocalPort,RemoteAddress,RemotePort,OwningProcess | "
-			+ "ConvertTo-Csv -NoTypeInformation";
-		ProcessBuilder processBuilder = new ProcessBuilder("powershell", "-NoProfile", "-Command", command);
-		try {
-			Process process = processBuilder.start();
-			boolean finished = process.waitFor(3, TimeUnit.SECONDS);
-			if (!finished) {
-				process.destroyForcibly();
-				log.info("Startup diagnostics timed out while checking connected clients for port {}", port);
-				return;
-			}
-			String output = readStream(process.getInputStream()).trim();
-			if (output.isBlank()) {
-				log.info("Startup diagnostics: no connected clients on port {}", port);
-				return;
-			}
-			String[] lines = output.split("\\R");
-			if (lines.length <= 1) {
-				log.info("Startup diagnostics: no connected clients on port {}", port);
-				return;
-			}
-			for (int i = 1; i < lines.length; i++) {
-				String line = lines[i].trim();
-				if (!line.isEmpty()) {
-					log.info("Startup diagnostics: connected client on port {} -> {}", port, line);
-				}
-			}
-		} catch (IOException | InterruptedException exception) {
-			if (exception instanceof InterruptedException) {
-				Thread.currentThread().interrupt();
-			}
-			log.warn("Startup diagnostics failed for port {}", port, exception);
-		}
-	}
-
-	private String readStream(InputStream inputStream) throws IOException {
-		return new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
 	}
 }

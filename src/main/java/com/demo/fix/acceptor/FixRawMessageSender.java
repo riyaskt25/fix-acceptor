@@ -1,35 +1,31 @@
 package com.demo.fix.acceptor;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import quickfix.Message;
 import quickfix.Session;
 import quickfix.SessionID;
-import quickfix.field.MsgType;
 import quickfix.field.SenderCompID;
 import quickfix.field.TargetCompID;
 
 @Component
 public class FixRawMessageSender {
+	private static final Logger log = LoggerFactory.getLogger(FixRawMessageSender.class);
 
-	public void validateExecutionReport(String rawMessage) {
-		try {
-			Message message = new Message(rawMessage);
-			String messageType = message.getHeader().getString(MsgType.FIELD);
-			if (!"8".equals(messageType)) {
-				throw new IllegalArgumentException("Only FIX 35=8 execution reports are supported");
-			}
-		} catch (IllegalArgumentException exception) {
-			throw exception;
-		} catch (Exception exception) {
-			throw new IllegalArgumentException("Invalid FIX execution report message", exception);
-		}
-	}
-
-	public void send(FixAcceptorProperties.Session session, SessionID sessionId, String rawMessage) throws Exception {
-		Message message = new Message(rawMessage);
-		message.getHeader().setString(SenderCompID.FIELD, session.getSenderCompId());
-		message.getHeader().setString(TargetCompID.FIELD, session.getTargetCompId());
-		Session.sendToTarget(message, sessionId);
-	}
+    public boolean send(FixAcceptorProperties.Session session, SessionID sessionId, String rawMessage) throws Exception {
+        log.info("Preparing FIX message send: sessionId={}, senderCompId={}, targetCompId={}, rawLength={}",
+            sessionId,
+            session.getSenderCompId(),
+            session.getTargetCompId(),
+            rawMessage == null ? 0 : rawMessage.length());
+        Message message = new Message(rawMessage);
+        message.getHeader().setString(SenderCompID.FIELD, session.getSenderCompId());
+        message.getHeader().setString(TargetCompID.FIELD, session.getTargetCompId());
+        log.debug("Sending FIX message to target: sessionId={}, message={}", sessionId, message);
+        boolean sent = Session.sendToTarget(message, sessionId);
+        log.info("FIX send result: sessionId={}, sent={}", sessionId, sent);
+        return sent;
+    }
 }

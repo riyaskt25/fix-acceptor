@@ -19,6 +19,7 @@ public class FixRuntimeFilesManager {
 	}
 
 	public RuntimePaths resetRuntime(String settingsContent) throws IOException {
+		log.info("Resetting FIX runtime files: settingsLength={}", settingsContent == null ? 0 : settingsContent.length());
 		Path baseDirectory = Path.of("fix-runtime");
 		Path storeDirectory = baseDirectory.resolve("store");
 		Path logDirectory = baseDirectory.resolve("log");
@@ -31,10 +32,12 @@ public class FixRuntimeFilesManager {
 		Files.createDirectories(storeDirectory);
 		Files.createDirectories(logDirectory);
 		Files.writeString(settingsFile, settingsContent, StandardCharsets.UTF_8);
+		log.info("Runtime reset complete: settingsFile={}, storeDir={}, logDir={}", settingsFile, storeDirectory, logDirectory);
 		return new RuntimePaths(storeDirectory, logDirectory, settingsFile);
 	}
 
 	private void deleteDirectory(Path directory) throws IOException {
+		log.info("Deleting directory if it exists: {}", directory);
 		if (Files.exists(directory)) {
 			try (var entries = Files.walk(directory)) {
 				entries.sorted(Comparator.reverseOrder())
@@ -46,6 +49,9 @@ public class FixRuntimeFilesManager {
 						}
 					});
 			}
+			log.info("Directory cleanup completed: {}", directory);
+		} else {
+			log.info("Directory does not exist, skip cleanup: {}", directory);
 		}
 	}
 }
