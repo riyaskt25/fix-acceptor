@@ -3,28 +3,55 @@ spring:
     name: fix-acceptor1
 
 fix:
-  acceptor:
-    enabled: true
-    connection-type: acceptor
-    file-store-path: fix-runtime/store
-    file-log-path: fix-runtime/log
-    start-time: 00:00:00
-    end-time: 23:59:59
-    use-data-dictionary: N
-    sessions:
-      - port: 9878
-        begin-string: FIX.4.4
-        sender-comp-id: ACCEPTOR
-        target-comp-id: INITIATOR1
-        heartbeat-interval-seconds: 30
-        symbol: DEMO
-        quantity: 100
-        side: BUY
-      - port: 9878
-        begin-string: FIX.4.4
-        sender-comp-id: ACCEPTOR
-        target-comp-id: INITIATOR2
-        heartbeat-interval-seconds: 30
-        symbol: DEMO
-        quantity: 100
-        side: SELL
+  enabled: true
+  runtime:
+    store-directory: fix-runtime/store
+    log-directory: fix-runtime/log
+    diagnostics-enabled: true
+  sessions:
+    - begin-string: FIX.4.4
+      sender-comp-id: ACCEPTOR
+      target-comp-id: INITIATOR1
+      session-qualifier: ""
+      socket-accept-port: 9878
+      heartbeat-interval: 30
+      start-time: 00:00:00
+      end-time: 23:59:59
+      time-zone: UTC
+      data-dictionary: ""
+      persist-messages: true
+      reset-on-logon: false
+      reset-on-logout: false
+      reset-on-disconnect: false
+      validate-sequence-numbers: true
+      validate-incoming-message: true
+      validate-fields-have-values: true
+      check-comp-id: true
+      check-latency: false
+      max-latency: 120
+      file-store-path: fix-runtime/store
+      file-log-path: fix-runtime/log
+      use-data-dictionary: false
+    - begin-string: FIX.4.4
+      sender-comp-id: ACCEPTOR
+      target-comp-id: INITIATOR2
+      session-qualifier: ""
+      socket-accept-port: 9878
+      heartbeat-interval: 30
+      start-time: 00:00:00
+      end-time: 23:59:59
+      time-zone: UTC
+      data-dictionary: ""
+      persist-messages: true
+      reset-on-logon: false
+      reset-on-logout: false
+      reset-on-disconnect: false
+      validate-sequence-numbers: true
+      validate-incoming-message: true
+      validate-fields-have-values: true
+      check-comp-id: true
+      check-latency: false
+      max-latency: 120
+      file-store-path: fix-runtime/store
+      file-log-path: fix-runtime/log
+      use-data-dictionary: false

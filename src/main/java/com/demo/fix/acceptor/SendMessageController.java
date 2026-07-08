@@ -18,7 +18,7 @@ import com.demo.fix.acceptor.application.SendMessageService;
 
 @RestController
 @RequestMapping("/api/send-message")
-@ConditionalOnProperty(prefix = "fix.acceptor", name = "enabled", havingValue = "true", matchIfMissing = true)
+@ConditionalOnProperty(prefix = "fix", name = "enabled", havingValue = "true", matchIfMissing = true)
 public class SendMessageController {
 	private static final Logger log = LoggerFactory.getLogger(SendMessageController.class);
 
@@ -29,39 +29,25 @@ public class SendMessageController {
 		log.info("Initialized SendMessageController");
 	}
 
-	@PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+	@PostMapping(consumes = MediaType.TEXT_PLAIN_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
 	@ResponseStatus(HttpStatus.ACCEPTED)
-	public SendMessageService.NewOrderSubmissionResult send(
-		@RequestParam String targetCompId,
-		@RequestBody NewOrderRequest request) {
-		log.info("Received /api/send-message request: targetCompId={}, rawLength={}",
-			targetCompId,
-			request == null ? 0 : 1);
+	public SendMessageService.RawMessageSubmissionResult send(
+		@RequestParam String initiatorId,
+		@RequestBody String fixMessage) {
+		log.info("Received raw FIX send request: initiatorId={}, rawLength={}", initiatorId, fixMessage == null ? 0 : fixMessage.length());
 
-		if (targetCompId == null || targetCompId.isBlank()) {
-			log.warn("Rejecting send request: missing targetCompId");
-			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "targetCompId is required");
+		if (initiatorId == null || initiatorId.isBlank()) {
+			log.warn("Rejecting raw FIX send request: missing initiatorId");
+			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "initiatorId is required");
 		}
-		if (request == null) {
-			log.warn("Rejecting send request: empty request body for targetCompId={}", targetCompId);
-			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "request body is required");
+		if (fixMessage == null || fixMessage.isBlank()) {
+			log.warn("Rejecting raw FIX send request: empty FIX message for initiatorId={}", initiatorId);
+			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "fixMessage is required");
 		}
 
-		log.info("Request summary: targetCompId={}, clOrdId={}, symbol={}, side={}, ordType={}, orderQty={}, price={}, stopPx={}, parties={}, extraFields={}",
-			targetCompId,
-			request.clOrdId(),
-			request.symbol(),
-			request.side(),
-			request.ordType(),
-			request.orderQty(),
-			request.price(),
-			request.stopPx(),
-			request.parties() == null ? 0 : request.parties().size(),
-			request.additionalFields() == null ? 0 : request.additionalFields().size());
-
-		SendMessageService.NewOrderSubmissionResult result = sendMessageService.sendNewOrder(targetCompId.trim(), request);
-		log.info("Completed /api/send-message request: targetCompId={}, sentNow={}, sent={}, sessionId={}",
-			result.targetCompId(),
+		SendMessageService.RawMessageSubmissionResult result = sendMessageService.sendRawMessage(initiatorId.trim(), fixMessage);
+		log.info("Completed raw FIX send request: initiatorId={}, sentNow={}, sent={}, sessionId={}",
+			result.initiatorId(),
 			result.sentNow(),
 			result.sent(),
 			result.sessionId());

@@ -1,7 +1,6 @@
 package com.demo.fix.acceptor;
 
 import java.io.IOException;
-import java.nio.file.Path;
 import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -39,7 +38,7 @@ import quickfix.SocketAcceptor;
 import quickfix.UnsupportedMessageType;
 
 @Component
-@ConditionalOnProperty(prefix = "fix.acceptor", name = "enabled", havingValue = "true", matchIfMissing = true)
+@ConditionalOnProperty(prefix = "fix", name = "enabled", havingValue = "true", matchIfMissing = true)
 public class QuickFixAcceptorRuntimeService extends MessageCracker implements ApplicationRunner, DisposableBean, Application {
 
 	private static final Logger log = LoggerFactory.getLogger(QuickFixAcceptorRuntimeService.class);
@@ -83,7 +82,10 @@ public class QuickFixAcceptorRuntimeService extends MessageCracker implements Ap
 		log.info("Refreshing FIX session registry with {} session(s)", properties.getSessions().size());
 		sessionRegistry.refresh(properties.getSessions());
 		String settings = settingsBuilder.build(properties);
-		FixRuntimeFilesManager.RuntimePaths runtimePaths = runtimeFilesManager.resetRuntime(settings);
+		FixRuntimeFilesManager.RuntimePaths runtimePaths = runtimeFilesManager.resetRuntime(
+			settings,
+			java.nio.file.Path.of(properties.getRuntime().getStoreDirectory()),
+			java.nio.file.Path.of(properties.getRuntime().getLogDirectory()));
 		log.info("Runtime files prepared: settingsFile={}, storeDir={}, logDir={}",
 			runtimePaths.settingsFile(),
 			runtimePaths.storeDirectory(),
@@ -97,7 +99,11 @@ public class QuickFixAcceptorRuntimeService extends MessageCracker implements Ap
 		acceptor = new SocketAcceptor(this, messageStoreFactory, sessionSettings, logFactory, messageFactory);
 		acceptor.start();
 		log.info("FIX acceptor started with {} session(s)", properties.getSessions().size());
-		logStartupClientDiagnostics();
+		if (properties.getRuntime().isDiagnosticsEnabled()) {
+			logStartupClientDiagnostics();
+		} else {
+			log.info("Startup client diagnostics disabled by configuration");
+		}
 	}
 
 	@Override
@@ -158,7 +164,7 @@ public class QuickFixAcceptorRuntimeService extends MessageCracker implements Ap
 		}
 		Set<Integer> uniquePorts = ConcurrentHashMap.newKeySet();
 		for (FixAcceptorProperties.Session session : properties.getSessions()) {
-			uniquePorts.add(session.getPort());
+			uniquePorts.add(session.getSocketAcceptPort());
 		}
 		log.info("Startup diagnostics will run for {} unique port(s)", uniquePorts.size());
 		for (Integer port : uniquePorts) {

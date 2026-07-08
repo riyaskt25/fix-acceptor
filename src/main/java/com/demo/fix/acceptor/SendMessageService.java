@@ -5,87 +5,74 @@ import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
-import quickfix.Message;
-import quickfix.Session;
-import quickfix.SessionID;
-
 import com.demo.fix.acceptor.FixAcceptorProperties;
-import com.demo.fix.acceptor.api.NewOrderRequest;
 import com.demo.fix.acceptor.infrastructure.FixRawMessageSender;
 import com.demo.fix.acceptor.infrastructure.FixSessionRegistry;
 
+import quickfix.Session;
+import quickfix.SessionID;
+
 @Service
-@ConditionalOnProperty(prefix = "fix.acceptor", name = "enabled", havingValue = "true", matchIfMissing = true)
+@ConditionalOnProperty(prefix = "fix", name = "enabled", havingValue = "true", matchIfMissing = true)
 public class SendMessageService {
 	private static final Logger log = LoggerFactory.getLogger(SendMessageService.class);
 
 	private final FixSessionRegistry sessionRegistry;
-	private final NewOrderSingleMessageBuilder newOrderSingleMessageBuilder;
 	private final FixRawMessageSender rawMessageSender;
 
 	public SendMessageService(
 		FixSessionRegistry sessionRegistry,
-		NewOrderSingleMessageBuilder newOrderSingleMessageBuilder,
 		FixRawMessageSender rawMessageSender) {
 		this.sessionRegistry = sessionRegistry;
-		this.newOrderSingleMessageBuilder = newOrderSingleMessageBuilder;
 		this.rawMessageSender = rawMessageSender;
 		log.info("Initialized SendMessageService");
 	}
 
-	public NewOrderSubmissionResult sendNewOrder(String targetCompId, NewOrderRequest request) {
-		log.info("Processing sendNewOrder: targetCompId={}, clOrdId={}, symbol={}, side={}, ordType={}, orderQty={}, price={}, stopPx={}",
-			targetCompId,
-			request == null ? null : request.clOrdId(),
-			request == null ? null : request.symbol(),
-			request == null ? null : request.side(),
-			request == null ? null : request.ordType(),
-			request == null ? null : request.orderQty(),
-			request == null ? null : request.price(),
-			request == null ? null : request.stopPx());
-		if (request == null) {
-			log.warn("sendNewOrder rejected: request body is null, targetCompId={}", targetCompId);
-			throw new IllegalArgumentException("request body is required");
+	public RawMessageSubmissionResult sendRawMessage(String initiatorId, String fixMessage) {
+		log.info("Processing sendRawMessage: initiatorId={}, rawLength={}", initiatorId, fixMessage == null ? 0 : fixMessage.length());
+		if (initiatorId == null || initiatorId.isBlank()) {
+			throw new IllegalArgumentException("initiatorId is required");
+		}
+		if (fixMessage == null || fixMessage.isBlank()) {
+			throw new IllegalArgumentException("fixMessage is required");
 		}
 
-		FixAcceptorProperties.Session session = sessionRegistry.requireByTargetCompId(targetCompId);
+		FixAcceptorProperties.Session session = sessionRegistry.requireByTargetCompId(initiatorId.trim());
 		SessionID sessionId = sessionRegistry.toSessionId(session);
-		log.info("Resolved session for sendNewOrder: targetCompId={}, sessionId={}", targetCompId, sessionId);
+		log.info("Resolved session for raw FIX send: initiatorId={}, sessionId={}", initiatorId, sessionId);
 
 		Session activeSession = Session.lookupSession(sessionId);
 		if (activeSession == null || !activeSession.isLoggedOn()) {
-			log.info("Initiator is not logged on, new order ignored: targetCompId={}, sessionId={}", targetCompId, sessionId);
-			return new NewOrderSubmissionResult(targetCompId, 0, false, sessionId.toString());
+			log.info("Initiator is not logged on, raw FIX message ignored: initiatorId={}, sessionId={}", initiatorId, sessionId);
+			return new RawMessageSubmissionResult(initiatorId, 0, false, sessionId.toString());
 		}
 
 		try {
-			Message message = newOrderSingleMessageBuilder.build(request);
-			boolean sent = rawMessageSender.send(session, sessionId, message);
+			String normalizedMessage = normalizeFixMessage(fixMessage);
+			boolean sent = rawMessageSender.send(session, sessionId, normalizedMessage);
 			if (!sent) {
-				log.warn("QuickFIX did not send new order (sendToTarget=false): targetCompId={}, sessionId={}", targetCompId, sessionId);
-				return new NewOrderSubmissionResult(targetCompId, 0, false, sessionId.toString());
+				log.warn("QuickFIX did not send raw message (sendToTarget=false): initiatorId={}, sessionId={}", initiatorId, sessionId);
+				return new RawMessageSubmissionResult(initiatorId, 0, false, sessionId.toString());
 			}
-			log.info("New order sent successfully: targetCompId={}, sessionId={}, clOrdId={}, symbol={}, side={}, orderQty={}",
-				targetCompId,
-				sessionId,
-				request.clOrdId(),
-				request.symbol(),
-				request.side(),
-				request.orderQty());
-			return new NewOrderSubmissionResult(targetCompId, 1, true, sessionId.toString());
+			log.info("Raw FIX message sent successfully: initiatorId={}, sessionId={}", initiatorId, sessionId);
+			return new RawMessageSubmissionResult(initiatorId, 1, true, sessionId.toString());
 		} catch (Exception exception) {
-			log.error("New order send failed: targetCompId={}, sessionId={}, clOrdId={}, symbol={}, side={}, orderQty={}",
-				targetCompId,
-				sessionId,
-				request.clOrdId(),
-				request.symbol(),
-				request.side(),
-				request.orderQty(),
-				exception);
-			throw new IllegalArgumentException("Failed to send FIX new order", exception);
+			log.error("Raw FIX send failed: initiatorId={}, sessionId={}", initiatorId, sessionId, exception);
+			throw new IllegalArgumentException("Failed to send raw FIX message", exception);
 		}
 	}
 
-	public record NewOrderSubmissionResult(String targetCompId, int sentNow, boolean sent, String sessionId) {
+	private String normalizeFixMessage(String fixMessage) {
+		if (fixMessage.indexOf('\u0001') >= 0) {
+			return fixMessage;
+		}
+		if (fixMessage.indexOf('|') >= 0) {
+			return fixMessage.replace('|', '\u0001');
+		}
+		return fixMessage;
 	}
+
+	public record RawMessageSubmissionResult(String initiatorId, int sentNow, boolean sent, String sessionId) {
+	}
+
 }

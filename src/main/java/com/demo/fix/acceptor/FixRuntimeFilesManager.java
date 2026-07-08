@@ -18,12 +18,9 @@ public class FixRuntimeFilesManager {
 	public record RuntimePaths(Path storeDirectory, Path logDirectory, Path settingsFile) {
 	}
 
-	public RuntimePaths resetRuntime(String settingsContent) throws IOException {
+	public RuntimePaths resetRuntime(String settingsContent, Path storeDirectory, Path logDirectory) throws IOException {
 		log.info("Resetting FIX runtime files: settingsLength={}", settingsContent == null ? 0 : settingsContent.length());
-		Path baseDirectory = Path.of("fix-runtime");
-		Path storeDirectory = baseDirectory.resolve("store");
-		Path logDirectory = baseDirectory.resolve("log");
-		Path settingsFile = baseDirectory.resolve("acceptor.cfg");
+		Path settingsFile = Path.of("fix-runtime").resolve("acceptor.cfg");
 
 		deleteDirectory(storeDirectory);
 		deleteDirectory(logDirectory);

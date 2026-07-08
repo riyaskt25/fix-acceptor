@@ -28,7 +28,7 @@ public class FixSessionRegistry {
 				session.getTargetCompId(),
 				session.getSenderCompId(),
 				session.getBeginString(),
-				session.getPort());
+				session.getSocketAcceptPort());
 		}
 		log.info("Session registry refresh complete: {} session(s)", count);
 	}
@@ -44,7 +44,7 @@ public class FixSessionRegistry {
 			targetCompId,
 			session.getSenderCompId(),
 			session.getBeginString(),
-			session.getPort());
+			session.getSocketAcceptPort());
 		return session;
 	}
 
