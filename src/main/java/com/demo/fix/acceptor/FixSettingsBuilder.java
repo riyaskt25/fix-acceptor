@@ -12,19 +12,21 @@ import com.demo.fix.acceptor.FixAcceptorProperties;
 public class FixSettingsBuilder {
 	private static final Logger log = LoggerFactory.getLogger(FixSettingsBuilder.class);
 
-	public String build(Iterable<FixAcceptorProperties.Session> sessions, Path storeDirectory, Path logDirectory) {
+	public String build(FixAcceptorProperties properties) {
+		Path storeDirectory = Path.of(properties.getFileStorePath());
+		Path logDirectory = Path.of(properties.getFileLogPath());
 		log.info("Building FIX settings: storeDirectory={}, logDirectory={}", storeDirectory, logDirectory);
 		StringBuilder settings = new StringBuilder();
 		settings.append("[DEFAULT]\n");
-		settings.append("ConnectionType=acceptor\n");
+		settings.append("ConnectionType=%s\n".formatted(properties.getConnectionType()));
 		settings.append("FileStorePath=%s\n".formatted(storeDirectory.toAbsolutePath()));
 		settings.append("FileLogPath=%s\n".formatted(logDirectory.toAbsolutePath()));
-		settings.append("StartTime=00:00:00\n");
-		settings.append("EndTime=23:59:59\n");
-		settings.append("UseDataDictionary=N\n");
+		settings.append("StartTime=%s\n".formatted(properties.getStartTime()));
+		settings.append("EndTime=%s\n".formatted(properties.getEndTime()));
+		settings.append("UseDataDictionary=%s\n".formatted(properties.getUseDataDictionary()));
 
 		int sessionCount = 0;
-		for (FixAcceptorProperties.Session session : sessions) {
+		for (FixAcceptorProperties.Session session : properties.getSessions()) {
 			settings.append("\n[SESSION]\n");
 			settings.append("BeginString=%s\n".formatted(session.getBeginString()));
 			settings.append("SenderCompID=%s\n".formatted(session.getSenderCompId()));

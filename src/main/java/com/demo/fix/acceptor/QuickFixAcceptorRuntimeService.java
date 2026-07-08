@@ -82,7 +82,7 @@ public class QuickFixAcceptorRuntimeService extends MessageCracker implements Ap
 
 		log.info("Refreshing FIX session registry with {} session(s)", properties.getSessions().size());
 		sessionRegistry.refresh(properties.getSessions());
-		String settings = settingsBuilder.build(properties.getSessions(), Path.of("fix-runtime/store"), Path.of("fix-runtime/log"));
+		String settings = settingsBuilder.build(properties);
 		FixRuntimeFilesManager.RuntimePaths runtimePaths = runtimeFilesManager.resetRuntime(settings);
 		log.info("Runtime files prepared: settingsFile={}, storeDir={}, logDir={}",
 			runtimePaths.settingsFile(),

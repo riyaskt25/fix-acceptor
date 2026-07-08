@@ -9,6 +9,12 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public class FixAcceptorProperties {
 
 	private boolean enabled = true;
+	private String connectionType = "acceptor";
+	private String fileStorePath = "fix-runtime/store";
+	private String fileLogPath = "fix-runtime/log";
+	private String startTime = "00:00:00";
+	private String endTime = "23:59:59";
+	private String useDataDictionary = "N";
 	private List<Session> sessions = new ArrayList<>();
 
 	public boolean isEnabled() {
@@ -17,6 +23,54 @@ public class FixAcceptorProperties {
 
 	public void setEnabled(boolean enabled) {
 		this.enabled = enabled;
+	}
+
+	public String getConnectionType() {
+		return connectionType;
+	}
+
+	public void setConnectionType(String connectionType) {
+		this.connectionType = connectionType;
+	}
+
+	public String getFileStorePath() {
+		return fileStorePath;
+	}
+
+	public void setFileStorePath(String fileStorePath) {
+		this.fileStorePath = fileStorePath;
+	}
+
+	public String getFileLogPath() {
+		return fileLogPath;
+	}
+
+	public void setFileLogPath(String fileLogPath) {
+		this.fileLogPath = fileLogPath;
+	}
+
+	public String getStartTime() {
+		return startTime;
+	}
+
+	public void setStartTime(String startTime) {
+		this.startTime = startTime;
+	}
+
+	public String getEndTime() {
+		return endTime;
+	}
+
+	public void setEndTime(String endTime) {
+		this.endTime = endTime;
+	}
+
+	public String getUseDataDictionary() {
+		return useDataDictionary;
+	}
+
+	public void setUseDataDictionary(String useDataDictionary) {
+		this.useDataDictionary = useDataDictionary;
 	}
 
 	public List<Session> getSessions() {
@@ -34,9 +88,6 @@ public class FixAcceptorProperties {
 		private String senderCompId = "ACCEPTOR";
 		private String targetCompId = "INITIATOR";
 		private int heartbeatIntervalSeconds = 30;
-		private String symbol = "DEMO";
-		private int quantity = 100;
-		private String side = "BUY";
 
 		public int getPort() {
 			return port;
@@ -76,30 +127,6 @@ public class FixAcceptorProperties {
 
 		public void setHeartbeatIntervalSeconds(int heartbeatIntervalSeconds) {
 			this.heartbeatIntervalSeconds = heartbeatIntervalSeconds;
-		}
-
-		public String getSymbol() {
-			return symbol;
-		}
-
-		public void setSymbol(String symbol) {
-			this.symbol = symbol;
-		}
-
-		public int getQuantity() {
-			return quantity;
-		}
-
-		public void setQuantity(int quantity) {
-			this.quantity = quantity;
-		}
-
-		public String getSide() {
-			return side;
-		}
-
-		public void setSide(String side) {
-			this.side = side;
 		}
 	}
 }
