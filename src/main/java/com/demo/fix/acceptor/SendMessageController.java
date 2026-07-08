@@ -1,4 +1,4 @@
-package com.demo.fix.acceptor.api;
+package com.demo.fix.acceptor;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -13,8 +13,6 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
-
-import com.demo.fix.acceptor.application.SendMessageService;
 
 @RestController
 @RequestMapping("/api/send-message")

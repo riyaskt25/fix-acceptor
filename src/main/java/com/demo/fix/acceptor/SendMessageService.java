@@ -1,13 +1,9 @@
-package com.demo.fix.acceptor.application;
+package com.demo.fix.acceptor;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
-
-import com.demo.fix.acceptor.FixAcceptorProperties;
-import com.demo.fix.acceptor.infrastructure.FixRawMessageSender;
-import com.demo.fix.acceptor.infrastructure.FixSessionRegistry;
 
 import quickfix.Session;
 import quickfix.SessionID;

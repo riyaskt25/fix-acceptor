@@ -1,4 +1,4 @@
-package com.demo.fix.acceptor.infrastructure;
+package com.demo.fix.acceptor;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
