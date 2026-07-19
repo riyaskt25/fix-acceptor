@@ -1,8 +1,12 @@
 package com.demo.fix.acceptor;
 
+import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Comparator;
+import java.util.Iterator;
 import java.util.Locale;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -10,9 +14,11 @@ import org.springframework.beans.factory.DisposableBean;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Component;
 
 import quickfix.Application;
+import quickfix.ConfigError;
 import quickfix.DefaultMessageFactory;
 import quickfix.FieldNotFound;
 import quickfix.FileLogFactory;
@@ -37,20 +43,14 @@ public class QuickFixAcceptorRuntimeService extends MessageCracker implements Ap
 
 	private final FixAcceptorProperties properties;
 	private final FixSessionRegistry sessionRegistry;
-	private final FixSettingsBuilder settingsBuilder;
-	private final FixRuntimeFilesManager runtimeFilesManager;
 
 	private volatile SocketAcceptor acceptor;
 
 	public QuickFixAcceptorRuntimeService(
 		FixAcceptorProperties properties,
-		FixSessionRegistry sessionRegistry,
-		FixSettingsBuilder settingsBuilder,
-		FixRuntimeFilesManager runtimeFilesManager) {
+		FixSessionRegistry sessionRegistry) {
 		this.properties = properties;
 		this.sessionRegistry = sessionRegistry;
-		this.settingsBuilder = settingsBuilder;
-		this.runtimeFilesManager = runtimeFilesManager;
 		log.info("Initialized QuickFixAcceptorRuntimeService");
 	}
 
@@ -66,31 +66,22 @@ public class QuickFixAcceptorRuntimeService extends MessageCracker implements Ap
 			log.info("FIX acceptor runtime already started, skipping initialization");
 			return;
 		}
-		if (properties.getSessions().isEmpty()) {
-			log.error("No FIX sessions configured");
-			throw new IllegalStateException("At least one FIX acceptor session must be configured");
+
+		SessionSettings sessionSettings = resolveSessionSettings();
+		sessionRegistry.refreshFromSessionSettings(sessionSettings);
+		if (properties.getRuntime().isCleanupOnStartup()) {
+			cleanupRuntimeDirectories(sessionSettings);
+		} else {
+			log.info("Runtime cleanup on startup disabled");
 		}
 
-		log.info("Refreshing FIX session registry with {} session(s)", properties.getSessions().size());
-		sessionRegistry.refresh(properties.getSessions());
-		String settings = settingsBuilder.build(properties);
-		FixRuntimeFilesManager.RuntimePaths runtimePaths = runtimeFilesManager.resetRuntime(
-			settings,
-			java.nio.file.Path.of(properties.getRuntime().getStoreDirectory()),
-			java.nio.file.Path.of(properties.getRuntime().getLogDirectory()));
-		log.info("Runtime files prepared: settingsFile={}, storeDir={}, logDir={}",
-			runtimePaths.settingsFile(),
-			runtimePaths.storeDirectory(),
-			runtimePaths.logDirectory());
-
-		SessionSettings sessionSettings = new SessionSettings(runtimePaths.settingsFile().toString());
 		MessageStoreFactory messageStoreFactory = new FileStoreFactory(sessionSettings);
 		FileLogFactory logFactory = new FileLogFactory(sessionSettings);
 		MessageFactory messageFactory = new DefaultMessageFactory();
 
 		acceptor = new SocketAcceptor(this, messageStoreFactory, sessionSettings, logFactory, messageFactory);
 		acceptor.start();
-		log.info("FIX acceptor started with {} session(s)", properties.getSessions().size());
+		log.info("FIX acceptor started with {} session(s)", sessionRegistry.size());
 		if (properties.getRuntime().isDiagnosticsEnabled()) {
 			logStartupClientDiagnostics();
 		} else {
@@ -154,13 +145,89 @@ public class QuickFixAcceptorRuntimeService extends MessageCracker implements Ap
 			log.info("Skipping startup client diagnostics because OS is not Windows");
 			return;
 		}
-		Set<Integer> uniquePorts = ConcurrentHashMap.newKeySet();
-		for (FixAcceptorProperties.Session session : properties.getSessions()) {
-			uniquePorts.add(session.getSocketAcceptPort());
-		}
+		Set<Integer> uniquePorts = sessionRegistry.uniqueSocketAcceptPorts();
 		log.info("Startup diagnostics will run for {} unique port(s)", uniquePorts.size());
 		for (Integer port : uniquePorts) {
 			WindowsFixDiagnosticsUtil.logConnectionsForPort(port, log);
+		}
+	}
+
+	private SessionSettings resolveSessionSettings() throws Exception {
+		FixAcceptorProperties.Settings settingsProperties = properties.getSettings();
+		Path externalPath = Path.of(settingsProperties.getExternalFile());
+		if (Files.exists(externalPath) && Files.isRegularFile(externalPath)) {
+			log.info("Loading FIX settings from external file: {}", externalPath.toAbsolutePath());
+			return new SessionSettings(externalPath.toString());
+		}
+
+		String classpathFallback = settingsProperties.getClasspathFallback();
+		ClassPathResource classPathResource = new ClassPathResource(classpathFallback);
+		if (classPathResource.exists()) {
+			log.info("External settings file not found at {}. Loading classpath fallback: {}",
+				externalPath.toAbsolutePath(),
+				classpathFallback);
+			try (InputStream inputStream = classPathResource.getInputStream()) {
+				return new SessionSettings(inputStream);
+			}
+		}
+
+		throw new IllegalStateException(
+			"No settings.cfg found. Checked external path " + externalPath.toAbsolutePath() +
+			" and classpath fallback " + classpathFallback);
+	}
+
+	private void cleanupRuntimeDirectories(SessionSettings settings) throws ConfigError {
+		Set<String> storePaths = java.util.concurrent.ConcurrentHashMap.newKeySet();
+		Set<String> logPaths = java.util.concurrent.ConcurrentHashMap.newKeySet();
+		collectGlobalPath(settings, "FileStorePath", storePaths);
+		collectGlobalPath(settings, "FileLogPath", logPaths);
+
+		Iterator<SessionID> sections = settings.sectionIterator();
+		while (sections.hasNext()) {
+			SessionID sessionId = sections.next();
+			collectSessionPath(settings, sessionId, "FileStorePath", storePaths);
+			collectSessionPath(settings, sessionId, "FileLogPath", logPaths);
+		}
+
+		for (String storePath : storePaths) {
+			deleteDirectory(Path.of(storePath));
+		}
+		for (String logPath : logPaths) {
+			deleteDirectory(Path.of(logPath));
+		}
+		log.info("Runtime cleanup complete: storePaths={}, logPaths={}", storePaths.size(), logPaths.size());
+	}
+
+	private void collectGlobalPath(SessionSettings settings, String key, Set<String> sink) throws ConfigError {
+		if (settings.isSetting(key)) {
+			sink.add(settings.getString(key));
+		}
+	}
+
+	private void collectSessionPath(SessionSettings settings, SessionID sessionId, String key, Set<String> sink) throws ConfigError {
+		if (settings.isSetting(sessionId, key)) {
+			sink.add(settings.getString(sessionId, key));
+		}
+	}
+
+	private void deleteDirectory(Path directory) {
+		log.info("Deleting directory if it exists: {}", directory);
+		if (!Files.exists(directory)) {
+			log.info("Directory does not exist, skip cleanup: {}", directory);
+			return;
+		}
+		try (var entries = Files.walk(directory)) {
+			entries.sorted(Comparator.reverseOrder())
+				.forEach(path -> {
+					try {
+						Files.delete(path);
+					} catch (Exception exception) {
+						log.warn("Could not delete FIX file: {}", path, exception);
+					}
+				});
+			log.info("Directory cleanup completed: {}", directory);
+		} catch (Exception exception) {
+			throw new IllegalStateException("Could not clean directory " + directory, exception);
 		}
 	}
 }
